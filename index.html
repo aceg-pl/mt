@@ -1,6 +1,6 @@
 <!doctype html><html><head>
 <meta charset="utf-8"/>
-<title>Metals 12-Month Auto Builder (Fixed Keys)</title>
+<title>Metals Trends from Investing.com</title>
 <style>
  body{font-family:-apple-system,system-ui;padding:20px;background:#fafafa}
  #card{max-width:960px;margin:auto;background:#fff;padding:16px;border-radius:8px;
@@ -10,8 +10,8 @@
 </style>
 </head><body>
 <div id="card">
- <h3>Metals — Auto-Collected 12-Month Trend</h3>
- <small>Gold & Palladium ÷1000, Silver ÷10 — Free Tier Incremental Builder</small>
+ <h3>Metals — 12-Month Trend (Investing.com Scraped)</h3>
+ <small>Gold & Palladium ÷1000, Silver ÷10</small>
  <div id="status" style="margin-bottom:10px;color:#444"></div>
  <canvas id="chart"></canvas>
 </div>
@@ -20,82 +20,78 @@
 <script>
 (async()=>{
 
-  const KEY = "725119967737018ac36bec66d4a87c96";
+  const setStatus = t => document.getElementById("status").innerText = t;
 
-  // CORRECT keys based on your actual Metals-API response
-  const METALS = [
-    {key:"Gold(USDXAU)",      div:1000, label:"Gold"},
-    {key:"Silver(USDXAG)",    div:10,   label:"Silver"},
-    {key:"Palladium(USDXPD)", div:1000, label:"Palladium"},
-    {key:"Copper(USDXCU)",    div:1,    label:"Copper"}
-  ];
+  // UPDATED CORRECT URLs
+  const SOURCES = {
+    Gold:      "https://www.investing.com/currencies/xau-usd-historical-data",
+    Silver:    "https://www.investing.com/currencies/xag-usd-historical-data",
+    Palladium: "https://www.investing.com/currencies/xpd-usd-historical-data",
+    Copper:    "https://www.investing.com/commodities/copper-historical-data"
+  };
 
-  const setStatus = msg => document.getElementById("status").innerText = msg;
+  const NORMALIZE = {
+    Gold: 1000,
+    Silver: 10,
+    Palladium: 1000,
+    Copper: 1
+  };
 
-  // Load cache
-  let hist = JSON.parse(localStorage.getItem("metalsHistFull") || "{}");
+  async function loadInvesting(url){
+    const proxy = "https://corsproxy.io/?";
+    const html = await fetch(proxy + encodeURIComponent(url)).then(r=>r.text());
+    const doc = new DOMParser().parseFromString(html, "text/html");
 
-  // Build last 365 dates
-  const needed=[];
-  const today=new Date();
-  for(let i=1;i<=365;i++){
-    const d=new Date();
-    d.setDate(today.getDate()-i);
-    needed.push(d.toISOString().slice(0,10));
+    const rows = [...doc.querySelectorAll("table tbody tr")];
+    const out = [];
+
+    for(const tr of rows){
+      const tds = tr.querySelectorAll("td");
+      if(tds.length < 6) continue;
+
+      const dateStr = tds[0].textContent.trim();
+      const priceStr = tds[1].textContent.trim().replace(/,/g,"");
+      const price = parseFloat(priceStr);
+
+      const date = new Date(dateStr);
+      if(isNaN(price) || isNaN(date)) continue;
+
+      out.push({
+        date: date.toISOString().slice(0,10),
+        price
+      });
+    }
+    return out.reverse();
   }
 
-  // Dates not in cache
-  const missing = needed.filter(d => !hist[d]);
+  setStatus("Downloading data…");
 
-  // free approximate safe limit
-  const MAX_CALLS = 20;
-  const toFetch = missing.slice(0, MAX_CALLS);
+  let raw = {};
 
-  if(toFetch.length>0){
-    setStatus(`Fetching ${toFetch.length} missing days…`);
-  } else {
-    setStatus("All data cached. Rendering chart.");
-  }
-
-  for(const date of toFetch){
-    setStatus(`Fetching ${date}…`);
-
-    // Correct historical endpoint
-    const url = `https://metals-api.com/api/${date}?access_key=${KEY}`;
+  for(const metal of Object.keys(SOURCES)){
+    setStatus(`Loading ${metal}…`);
     try{
-      const r=await fetch(url);
-      const j=await r.json();
-
-      if(j.success && j.rates){
-        hist[date]={};
-        METALS.forEach(m=>{
-          hist[date][m.key] = j.rates[m.key] ?? null;
-        });
-      }
+      raw[metal] = await loadInvesting(SOURCES[metal]);
     }catch(e){
       console.error(e);
+      setStatus(`Error loading ${metal}`);
     }
   }
 
-  // Save updated history
-  localStorage.setItem("metalsHistFull", JSON.stringify(hist));
+  setStatus("Processing…");
 
-  // Build sorted date array
-  const dates = Object.keys(hist).sort();
+  const allDates = new Set();
+  Object.values(raw).forEach(list => list.forEach(r => allDates.add(r.date)));
+  const dates = [...allDates].sort();
 
-  // Build datasets
-  const datasets = METALS.map(m=>{
+  const datasets = Object.keys(raw).map(name=>{
+    const map = new Map(raw[name].map(o=>[o.date,o.price]));
     return {
-      label: m.label,
-      data: dates.map(d=>{
-        const v = hist[d][m.key];
-        return v ? v / m.div : null;
-      }),
-      tension: 0.2
+      label: name,
+      data: dates.map(d => map.has(d) ? map.get(d)/NORMALIZE[name] : null),
+      tension: .2
     };
   });
-
-  setStatus("Drawing chart…");
 
   new Chart(document.getElementById("chart"),{
     type:"line",
@@ -106,7 +102,7 @@
     }
   });
 
-  setStatus("Done. Open daily to build full history.");
+  setStatus("Done — chart loaded.");
 
 })();
 </script>
