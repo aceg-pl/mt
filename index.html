@@ -1,17 +1,18 @@
 <!doctype html><html><head>
 <meta charset="utf-8"/>
-<title>Metals Trend (Free API)</title>
+<title>Metals 12-Month Auto Builder</title>
 <style>
  body{font-family:-apple-system,system-ui;padding:20px;background:#fafafa}
- #c{max-width:960px;margin:auto;background:#fff;padding:16px;border-radius:8px;
-    box-shadow:0 4px 14px rgba(0,0,0,.08)}
+ #card{max-width:960px;margin:auto;background:#fff;padding:16px;border-radius:8px;
+       box-shadow:0 4px 14px rgba(0,0,0,.08)}
  canvas{width:100%!important;height:420px!important}
- small{color:#555}
+ small{color:#666}
 </style>
 </head><body>
-<div id="c">
- <h3>Metals — last 12 months (normalized)</h3>
- <small>Gold & Palladium ÷1000, Silver ÷10 (4 free API calls)</small>
+<div id="card">
+ <h3>Metals — Auto-Collected 12-Month Trend (Free Tier)</h3>
+ <small>Gold & Palladium ÷1000, Silver ÷10 — Missing dates fetched gradually</small>
+ <div id="status" style="margin-bottom:10px;color:#444"></div>
  <canvas id="chart"></canvas>
 </div>
 
@@ -19,76 +20,94 @@
 <script>
 (async()=>{
 
-  const key="725119967737018ac36bec66d4a87c96";
-
-  const end=new Date(); end.setDate(end.getDate()-1);
-  const start=new Date(end); start.setFullYear(start.getFullYear()-1);
-  const f=d=>d.toISOString().slice(0,10);
-
-  const sd=f(start), ed=f(end);
-
-  // One free call per metal
-  async function load(metal){
-    const url=`https://api.metalpriceapi.com/v1/timeframe?api_key=${key}&start_date=${sd}&end_date=${ed}&base=USD&currencies=${metal}`;
-    const r=await fetch(url);
-    const j=await r.json();
-    if(!j.success) throw new Error(metal+": "+JSON.stringify(j.error));
-    return j.rates;
-  }
-
-  const metals=[
-    {code:"XAU", div:1000, label:"Gold"},
-    {code:"XAG", div:10,   label:"Silver"},
-    {code:"XPD", div:1000, label:"Palladium"},
-    {code:"XCU", div:1,    label:"Copper"}
+  const KEY = "725119967737018ac36bec66d4a87c96";
+  const METALS = [
+    {code:"USDXAU", div:1000, label:"Gold"},
+    {code:"USDXAG", div:10,   label:"Silver"},
+    {code:"USDXPD", div:1000, label:"Palladium"},
+    {code:"USDXCU", div:1,    label:"Copper"}
   ];
 
-  // Load all metals sequentially (free tier safe)
-  const data={};
-  for(const m of metals){
-    data[m.code]=await load(m.code);
+  const status = msg => document.getElementById("status").innerText = msg;
+
+  // Load local history or empty
+  let hist = JSON.parse(localStorage.getItem("metalsHistFull") || "{}");
+
+  // Build list of last 365 days
+  let needed = [];
+  const today = new Date();
+  for(let i=1;i<=365;i++){
+    const d=new Date();
+    d.setDate(today.getDate()-i);
+    const s=d.toISOString().slice(0,10);
+    needed.push(s);
   }
 
-  // Build common sorted date list
-  const dates=new Set();
-  Object.values(data).forEach(r=>Object.keys(r).forEach(d=>dates.add(d)));
-  const labels=[...dates].sort();
+  // Determine which dates we still need
+  const missing = needed.filter(d => !hist[d]);
+
+  // Free plan safe limit: ~20 calls per load
+  const MAX_CALLS = 20;
+  const toFetch = missing.slice(0, MAX_CALLS);
+
+  if(toFetch.length>0){
+    status(`Fetching ${toFetch.length} missing days…`);
+  } else {
+    status("All data cached — full history built!");
+  }
+
+  // Fetch each missing date (up to limit)
+  for(const date of toFetch){
+    status(`Fetching ${date}…`);
+
+    const url = `https://metals-api.com/api/${date}?access_key=${KEY}`;
+    try{
+      const r = await fetch(url);
+      const j = await r.json();
+
+      if(j.success && j.rates){
+        hist[date]={};
+        METALS.forEach(m=>{
+          hist[date][m.code] = j.rates[m.code] || null;
+        });
+      }
+
+    }catch(e){
+      console.error(e);
+    }
+  }
+
+  // Save updated history
+  localStorage.setItem("metalsHistFull", JSON.stringify(hist));
+
+  status("Rendering chart…");
+
+  // Build sorted date list
+  const dates = Object.keys(hist).sort();
 
   // Build datasets
-  const datasets=metals.map(m=>{
+  const datasets = METALS.map(m=>{
     return {
       label:m.label,
-      data:labels.map(d=>{
-        const v=data[m.code][d] ? data[m.code][d][m.code] : null;
+      data:dates.map(d=>{
+        const v = hist[d][m.code];
         return v ? v/m.div : null;
       }),
-      raw:data[m.code],
       tension:.2
     };
   });
 
-  // Chart
+  // Draw chart
   new Chart(document.getElementById("chart"),{
     type:"line",
-    data:{labels,datasets},
+    data:{labels:dates, datasets},
     options:{
       interaction:{mode:"index",intersect:false},
-      scales:{y:{title:{display:true,text:"Normalized"}}},
-      plugins:{
-        tooltip:{
-          callbacks:{
-            label(ctx){
-              const code=ctx.dataset.label;
-              const metal = metals.find(x=>x.label===code);
-              const date = ctx.label;
-              const raw = metal && data[metal.code][date] ? data[metal.code][date][metal.code] : "n/a";
-              return `${code}: norm ${ctx.formattedValue} — USD ${raw}`;
-            }
-          }
-        }
-      }
+      scales:{y:{title:{display:true,text:"Normalized"}}}
     }
   });
+
+  status("Done — chart updated. Open this page daily to build full history.");
 
 })();
 </script>
