@@ -22,12 +22,20 @@
 
   const setStatus = t => document.getElementById("status").innerText = t;
 
-  // UPDATED CORRECT URLs
+  // Correct Investing.com URLs
   const SOURCES = {
     Gold:      "https://www.investing.com/currencies/xau-usd-historical-data",
     Silver:    "https://www.investing.com/currencies/xag-usd-historical-data",
     Palladium: "https://www.investing.com/currencies/xpd-usd-historical-data",
     Copper:    "https://www.investing.com/commodities/copper-historical-data"
+  };
+
+  // Line colors to match metal appearance
+  const COLORS = {
+    Gold:      "#d4af37",
+    Silver:    "#c0c0c0",
+    Palladium: "#b0b8c5",
+    Copper:    "#b87333"
   };
 
   const NORMALIZE = {
@@ -52,8 +60,8 @@
       const dateStr = tds[0].textContent.trim();
       const priceStr = tds[1].textContent.trim().replace(/,/g,"");
       const price = parseFloat(priceStr);
-
       const date = new Date(dateStr);
+
       if(isNaN(price) || isNaN(date)) continue;
 
       out.push({
@@ -88,6 +96,9 @@
     const map = new Map(raw[name].map(o=>[o.date,o.price]));
     return {
       label: name,
+      borderColor: COLORS[name],
+      backgroundColor: COLORS[name],
+      borderWidth: 2,
       data: dates.map(d => map.has(d) ? map.get(d)/NORMALIZE[name] : null),
       tension: .2
     };
