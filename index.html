@@ -1,9 +1,9 @@
 <!doctype html><html><head>
 <meta charset="utf-8"/>
-<title>Metals 12-month Trend</title>
+<title>Metals Trend (Free API)</title>
 <style>
  body{font-family:-apple-system,system-ui;padding:20px;background:#fafafa}
- #c{width:100%;max-width:960px;margin:auto;background:#fff;padding:16px;border-radius:8px;
+ #c{max-width:960px;margin:auto;background:#fff;padding:16px;border-radius:8px;
     box-shadow:0 4px 14px rgba(0,0,0,.08)}
  canvas{width:100%!important;height:420px!important}
  small{color:#555}
@@ -11,51 +11,66 @@
 </head><body>
 <div id="c">
  <h3>Metals — last 12 months (normalized)</h3>
- <small>Gold & Palladium ÷1000, Silver ÷10</small>
+ <small>Gold & Palladium ÷1000, Silver ÷10 (4 free API calls)</small>
  <canvas id="chart"></canvas>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
 (async()=>{
+
   const key="725119967737018ac36bec66d4a87c96";
 
   const end=new Date(); end.setDate(end.getDate()-1);
   const start=new Date(end); start.setFullYear(start.getFullYear()-1);
   const f=d=>d.toISOString().slice(0,10);
+
   const sd=f(start), ed=f(end);
 
-  // One combined request for all metals
-  const url=`https://api.metalpriceapi.com/v1/timeframe?api_key=${key}&start_date=${sd}&end_date=${ed}&base=USD&currencies=XAU,XAG,XPD,XCU`;
-  const r=await fetch(url);
-  const j=await r.json();
-  if(!j.success){ alert("API error: "+JSON.stringify(j)); return; }
-
-  const dates=Object.keys(j.rates).sort();
-
-  function series(code, div){
-    return {
-      label:code,
-      raw:j.rates,
-      data:dates.map(d=>{
-        let v=j.rates[d][code];
-        // MetalpriceAPI returns price in USD directly
-        return v? v/div : null;
-      }),
-      tension:.2
-    };
+  // One free call per metal
+  async function load(metal){
+    const url=`https://api.metalpriceapi.com/v1/timeframe?api_key=${key}&start_date=${sd}&end_date=${ed}&base=USD&currencies=${metal}`;
+    const r=await fetch(url);
+    const j=await r.json();
+    if(!j.success) throw new Error(metal+": "+JSON.stringify(j.error));
+    return j.rates;
   }
 
-  const datasets=[
-    series("XAU",1000),  // gold
-    series("XAG",10),    // silver
-    series("XPD",1000),  // palladium
-    series("XCU",1)      // copper
+  const metals=[
+    {code:"XAU", div:1000, label:"Gold"},
+    {code:"XAG", div:10,   label:"Silver"},
+    {code:"XPD", div:1000, label:"Palladium"},
+    {code:"XCU", div:1,    label:"Copper"}
   ];
 
+  // Load all metals sequentially (free tier safe)
+  const data={};
+  for(const m of metals){
+    data[m.code]=await load(m.code);
+  }
+
+  // Build common sorted date list
+  const dates=new Set();
+  Object.values(data).forEach(r=>Object.keys(r).forEach(d=>dates.add(d)));
+  const labels=[...dates].sort();
+
+  // Build datasets
+  const datasets=metals.map(m=>{
+    return {
+      label:m.label,
+      data:labels.map(d=>{
+        const v=data[m.code][d] ? data[m.code][d][m.code] : null;
+        return v ? v/m.div : null;
+      }),
+      raw:data[m.code],
+      tension:.2
+    };
+  });
+
+  // Chart
   new Chart(document.getElementById("chart"),{
     type:"line",
-    data:{labels:dates,datasets},
+    data:{labels,datasets},
     options:{
       interaction:{mode:"index",intersect:false},
       scales:{y:{title:{display:true,text:"Normalized"}}},
@@ -64,15 +79,17 @@
           callbacks:{
             label(ctx){
               const code=ctx.dataset.label;
-              const date=ctx.label;
-              const real=j.rates[date][code];
-              return `${code}: norm ${ctx.formattedValue}  — USD ${real}`;
+              const metal = metals.find(x=>x.label===code);
+              const date = ctx.label;
+              const raw = metal && data[metal.code][date] ? data[metal.code][date][metal.code] : "n/a";
+              return `${code}: norm ${ctx.formattedValue} — USD ${raw}`;
             }
           }
         }
       }
     }
   });
+
 })();
 </script>
 </body></html>
