@@ -1,0 +1,78 @@
+<!doctype html><html><head>
+<meta charset="utf-8"/>
+<title>Metals 12-month Trend</title>
+<style>
+ body{font-family:-apple-system,system-ui;padding:20px;background:#fafafa}
+ #c{width:100%;max-width:960px;margin:auto;background:#fff;padding:16px;border-radius:8px;
+    box-shadow:0 4px 14px rgba(0,0,0,.08)}
+ canvas{width:100%!important;height:420px!important}
+ small{color:#555}
+</style>
+</head><body>
+<div id="c">
+ <h3>Metals — last 12 months (normalized)</h3>
+ <small>Gold & Palladium ÷1000, Silver ÷10</small>
+ <canvas id="chart"></canvas>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+(async()=>{
+  const key="725119967737018ac36bec66d4a87c96";
+
+  const end=new Date(); end.setDate(end.getDate()-1);
+  const start=new Date(end); start.setFullYear(start.getFullYear()-1);
+  const f=d=>d.toISOString().slice(0,10);
+  const sd=f(start), ed=f(end);
+
+  // One combined request for all metals
+  const url=`https://api.metalpriceapi.com/v1/timeframe?api_key=${key}&start_date=${sd}&end_date=${ed}&base=USD&currencies=XAU,XAG,XPD,XCU`;
+  const r=await fetch(url);
+  const j=await r.json();
+  if(!j.success){ alert("API error: "+JSON.stringify(j)); return; }
+
+  const dates=Object.keys(j.rates).sort();
+
+  function series(code, div){
+    return {
+      label:code,
+      raw:j.rates,
+      data:dates.map(d=>{
+        let v=j.rates[d][code];
+        // MetalpriceAPI returns price in USD directly
+        return v? v/div : null;
+      }),
+      tension:.2
+    };
+  }
+
+  const datasets=[
+    series("XAU",1000),  // gold
+    series("XAG",10),    // silver
+    series("XPD",1000),  // palladium
+    series("XCU",1)      // copper
+  ];
+
+  new Chart(document.getElementById("chart"),{
+    type:"line",
+    data:{labels:dates,datasets},
+    options:{
+      interaction:{mode:"index",intersect:false},
+      scales:{y:{title:{display:true,text:"Normalized"}}},
+      plugins:{
+        tooltip:{
+          callbacks:{
+            label(ctx){
+              const code=ctx.dataset.label;
+              const date=ctx.label;
+              const real=j.rates[date][code];
+              return `${code}: norm ${ctx.formattedValue}  — USD ${real}`;
+            }
+          }
+        }
+      }
+    }
+  });
+})();
+</script>
+</body></html>
